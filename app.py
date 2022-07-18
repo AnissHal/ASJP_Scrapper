@@ -65,7 +65,7 @@ def test_performance():
 	benchmark['Revue fetch'] = int((time.perf_counter() - start_time) )
 
 	start_time = time.perf_counter()
-	requests.get('{}/455')
+	requests.get('{}/455'.format(url))
 	benchmark['Article fetch'] = int((time.perf_counter() - start_time) )
 
 	start_time = time.perf_counter()
