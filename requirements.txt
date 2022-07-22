@@ -2,5 +2,6 @@ flask
 requests
 flask_compress
 flask_cors
+Flask-Cache
 bs4
 gunicorn

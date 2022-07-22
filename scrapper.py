@@ -17,7 +17,7 @@ def get_as_soup(url):
 def post_as_soup(url, data):
 	r = requests.post(url, data=data)
 	if r.status_code == 200:
-		soup = bs(r.content, 'lxml')
+		soup = bs(r.text, 'html.parser')
 		return soup
 	else:
 		return Exception('nout found')
@@ -56,18 +56,16 @@ def get_article(id):
     		'nemuro': nemuro, 'date': date, 'authors': authors, 'link': link, 'image': image, 'tags': tags}
 
 def get_revue(id):
-	print(id)
 	soup = get_as_soup('https://www.asjp.cerist.dz/en/PresentationRevue/{}'.format(id))
 	title= soup.select('.intitule_revue > h4')[0].text.strip()
 	metas = get_metas(soup.select('.meta-search'))
 	description = soup.select('.intitule_revue > p')[0].text.strip()
 	image = soup.select('.col-center > img:nth-child(1)')[0]['src'].strip()
-
+	link = 'https://www.asjp.cerist.dz/en/PresentationRevue/{}'.format(id)
 	stats_arr = [x.text.lower() for x in [y for y in soup.select('.row.NVA > div > div > p')]]
 	stats_arr.reverse()
 	if len(stats_arr)>6:
 		stats_arr = stats_arr[0:6]
-	print(stats_arr)
 	stats = dict(stats_arr[i:i+2] for i in range(0, len(stats_arr), 2))
 
 	articles = {}
@@ -78,12 +76,11 @@ def get_revue(id):
 
 	res = {'title': title, 'meta': metas, 'description': description, 'image': image, 'most_viewed': articles}
 	res.update(stats)
+	res.update({'link': link})
 	return res
 
 def get_revue_articles(id, volume):
 	soup = get_as_soup('https://www.asjp.cerist.dz/en/Articles/{}'.format(id))
-	start_time = time.perf_counter()
-
 
 	def process_articles(x):
 		articles = {}
@@ -97,8 +94,11 @@ def get_revue_articles(id, volume):
 				date = article_text[3].replace(',', '')
 				page = article_text[4].replace(',', '')
 			else:
-				date = article_text[5].replace(',', '')
-				page = article_text[6].replace(',', '')
+				try:
+					date = article_text[5].replace(',', '')
+					page = article_text[6].replace(',', '')
+				except:
+					print(article_text)
 
 			articles[article_text[0]] = {'link': link, 'authors': authors, 'date': date, 'page': page} 
 		return articles
@@ -119,9 +119,6 @@ def get_revue_articles(id, volume):
 		
 		Volumes[volumes_arr[0]].update({'numéros': Nemuros})
 
-	total_time = time.perf_counter() - start_time
-	time_in_ms = int(total_time * 1000)
-	print(time_in_ms)
 	if volume > 0:
 		try:
 			return Volumes['Volume {}'.format(volume)]
@@ -140,6 +137,10 @@ def searchRevue(query, issn, acronyme, page=1):
 	classes = []
 	links = []
 	images = []
+	try:
+		found = int(re.findall(r'\d+', soup.select('.mb20 > h4 > b > span')[0].text.strip())[0])
+	except IndexError:
+		found = 0
 	for article in articles:
 		titles.append(article.select("a.lien")[0].text.strip())
 		metas = article.select('.meta-search')
@@ -156,6 +157,7 @@ def searchRevue(query, issn, acronyme, page=1):
 							'image': images[i]}
 		except KeyError:
 			continue
+	revues.update({'found': found})
 
 	return revues
 
@@ -168,6 +170,10 @@ def search(query, page=1):
 	authors = []
 	dates = []
 	articles = {}
+	try:
+		found = int(re.findall(r'\d+', soup.select('.full-width-media-text\; > h5 > b> span')[0].text.strip())[0])
+	except IndexError:
+		found = 0
 	for result in results:
 		titles.append(result.select('table > thead > tr > th > h4 > a')[0].text.strip())
 		links.append(result.select('table > thead > tr > th > h4 > a')[0]['href'])
@@ -192,5 +198,63 @@ def search(query, page=1):
 							'description': descriptions[i]}
 		except KeyError:
 			continue
+	articles.update({'found': found})
+	return articles
 
+def latestArticles(page=1):
+	import re
+	from datetime import date, timedelta
+
+	today = date.today()
+	week_start = today - timedelta(days=today.weekday()+1)
+	# ARTICLES
+	soup = get_as_soup('https://www.asjp.cerist.dz/en/articleAdvancedResearch/Null_AR,TA,FR,EN,AL,ES,RU_All_ALL_Null_NULL_NULL_du_{}_{}_DESC_{}'.format(week_start, today, page))
+
+	titles = []
+	links = []
+	authors = []
+	date = []
+	descriptions = []
+	pages = []
+	tags = []
+	articles =  {}
+	date_fetch = soup.select('.tab_alph > span')[0].text.strip()
+	dates = []
+	try:
+		found = int(re.findall(r'\d+', soup.select('.tab_alph > h5 > b')[0].text.strip())[0])
+	except IndexError:
+		found = 0
+
+	articles_html = soup.select('.index_rev > div')
+	for article in articles_html:
+		titles.append(article.select('a')[0].text.strip())
+		links.append(article.select('a')[0]['href'].strip())
+		for element in article.select('p'):
+			try:
+				element.select('b')[0].extract()
+			except:
+				pass
+
+		t = [e.text.strip() for e in article.select('p')]
+		descriptions.append(t[0].strip())
+		tags.append([x.replace('Keywords: ', '').replace('كلمات مفتاحية:', '').strip() for x in re.split(r';|,|؛|،', t[1]) if x!=''])
+		authors.append([x.strip() for x in re.split(r';|,|؛|،', t[2])if x!=''])
+
+		article_dates = article.select('class')
+
+		try:
+			if len(article_dates) > 1:
+				dates.append(article_dates[1].text.strip())
+			else:
+				dates.append(article_dates[0].text.strip())
+		except:
+			pass
+
+	for i in range(len(titles)):
+		articles[i] = {}
+		try:
+			articles[i] = {'title': titles[i],'link': links[i], 'description': descriptions[i], 'tags': tags[i], 'authors': authors[i], 'date': dates[i]}
+		except KeyError:
+			continue
+	articles.update({'found': found, 'date': date_fetch})
 	return articles
